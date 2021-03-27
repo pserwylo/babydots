@@ -15,19 +15,12 @@
 
 opt_out_usage
 
-skip_upload_apk
-
 default_platform(:android)
 
 platform :android do
-  desc "Runs all the tests"
-  lane :test do
-    gradle(task: "test")
-  end
-
-  desc "Deploy a new version to the Google Play"
-  lane :deploy do
-    gradle(task: "clean assembleRelease")
+  desc "Upload i18n screenshots and metadata"
+  lane :update_metadata do
+    skip_upload_apk
     upload_to_play_store
   end
 end
