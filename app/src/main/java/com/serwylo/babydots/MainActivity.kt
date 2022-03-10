@@ -3,7 +3,6 @@ package com.serwylo.babydots
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.ActivityInfo
-import android.graphics.Color
 import android.graphics.Point
 import android.os.Bundle
 import android.view.*
@@ -17,7 +16,6 @@ import androidx.appcompat.widget.Toolbar
 import androidx.core.content.res.ResourcesCompat
 import com.leinardi.android.speeddial.SpeedDialActionItem
 import com.leinardi.android.speeddial.SpeedDialView
-import java.util.*
 
 
 class MainActivity : AppCompatActivity() {
@@ -140,8 +138,55 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (intent.getBooleanExtra(EXTRA_SLEEP_TIME, false)) {
-            startSleepTime()
+            showSleepTime()
         }
+
+        viewModel.timerCounter.observe(this) { counter ->
+            maybeShowCounter(counter)
+        }
+
+        viewModel.isSleepTime.observe(this) { isSleepTime ->
+            if (isSleepTime) {
+                showSleepTime()
+            } else {
+                hideSleepTime()
+            }
+        }
+    }
+
+    private fun maybeShowCounter(counter: Long) {
+        if (counter > 0) {
+            showCounter(counter)
+        } else {
+            hideCounter()
+        }
+    }
+
+    private fun showCounter(counter: Long) {
+        if (timerWrapper.visibility != View.VISIBLE) {
+            timerWrapper.visibility = View.VISIBLE
+
+            val stopTimerMenuItem = SpeedDialActionItem.Builder(R.id.menu_speed_dial_timer, R.drawable.ic_stop_sleep_timer)
+                .setLabel(R.string.stop_timer_button)
+                .setFabImageTintColor(ResourcesCompat.getColor(resources, R.color.white, theme))
+                .create()
+
+            speedDial.replaceActionItem(sleepTimerMenuItem, stopTimerMenuItem)
+            sleepTimerMenuItem = stopTimerMenuItem
+        }
+
+        updateTimer(counter)
+    }
+
+    private fun hideCounter() {
+        timerWrapper.visibility = View.GONE
+
+        val startTimerMenuItem = SpeedDialActionItem.Builder(R.id.menu_speed_dial_timer, R.drawable.ic_timer)
+            .setLabel(R.string.sleep_timer)
+            .setFabImageTintColor(ResourcesCompat.getColor(resources, R.color.white, theme))
+            .create()
+        speedDial.replaceActionItem(sleepTimerMenuItem, startTimerMenuItem)
+        sleepTimerMenuItem = startTimerMenuItem
     }
 
     /**
@@ -284,7 +329,7 @@ class MainActivity : AppCompatActivity() {
 
         viewModel.stopMusic()
 
-        pauseTimer()
+        viewModel.pauseTimer()
     }
 
     override fun onResume() {
@@ -296,9 +341,9 @@ class MainActivity : AppCompatActivity() {
 
         viewModel.resumeMusic()
 
-        if (timerCounter > 0) {
-            resumeTimer()
-        }
+        viewModel.resumeTimer()
+
+        maybeShowCounter(viewModel.timerCounter.value ?: 0L)
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -375,57 +420,12 @@ class MainActivity : AppCompatActivity() {
         Preferences.setShape(this, dots.shape)
     }
 
-    private var timer: Timer? = null
-    private var timerCounter = 0L
-
-    private fun sleepTimer(): Long {
-        return (Preferences.getSleepTimerMins(this) * 60 * 1000).toLong()
-    }
-
     private fun toggleTimer() {
-        if (timerCounter > 0) {
-            cancelTimer()
+        if (viewModel.timerCounter.value ?: 0L > 0) {
+            viewModel.cancelTimer()
         } else {
-            startTimer()
-        }
-    }
-
-    private fun startTimer() {
-        timer?.cancel()
-        timerCounter = 1000
-
-        resumeTimer()
-
-        Toast.makeText(this, R.string.sleep_timer_started_help_text, Toast.LENGTH_SHORT).show()
-    }
-
-    private fun resumeTimer() {
-        timer = Timer()
-
-        timer?.schedule(object : TimerTask() {
-            override fun run() {
-                timerCounter += 1000
-                runOnUiThread {
-                    if (timerCounter > sleepTimer()) {
-                        startSleepTime()
-                    } else {
-                        updateTimer()
-                    }
-                }
-            }
-        }, 1000, 1000)
-
-        runOnUiThread {
-            timerWrapper.visibility = View.VISIBLE
-
-            val stopTimerMenuItem = SpeedDialActionItem.Builder(R.id.menu_speed_dial_timer, R.drawable.ic_stop_sleep_timer)
-                .setLabel(R.string.stop_timer_button)
-                .setFabImageTintColor(ResourcesCompat.getColor(resources, R.color.white, theme))
-                .create()
-            speedDial.replaceActionItem(sleepTimerMenuItem, stopTimerMenuItem)
-            sleepTimerMenuItem = stopTimerMenuItem
-
-            updateTimer()
+            viewModel.startTimer()
+            Toast.makeText(this, R.string.sleep_timer_started_help_text, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -440,15 +440,12 @@ class MainActivity : AppCompatActivity() {
                     SettingsActivity::class.java
                 )
             )}
-            .setPositiveButton(R.string.stop_timer_button) { _, _ -> cancelTimer() }
+            .setPositiveButton(R.string.stop_timer_button) { _, _ -> viewModel.cancelTimer() }
             .create()
             .show()
     }
 
-    private fun updateTimer() {
-
-        val timeLeft = sleepTimer() - timerCounter
-
+    private fun updateTimer(timeLeft: Long) {
         val seconds = (timeLeft / 1000) % 60
         val minutes = (timeLeft / 1000) / 60
 
@@ -456,26 +453,6 @@ class MainActivity : AppCompatActivity() {
 
         val label = "${minutes}:${secondPadding}${seconds}"
         timerLabel.text = label
-    }
-
-    private fun cancelTimer() {
-        timer?.cancel()
-        timer = null
-        timerCounter = 0
-
-        timerWrapper.visibility = View.GONE
-
-        val startTimerMenuItem = SpeedDialActionItem.Builder(R.id.menu_speed_dial_timer, R.drawable.ic_timer)
-            .setLabel(R.string.sleep_timer)
-            .setFabImageTintColor(ResourcesCompat.getColor(resources, R.color.white, theme))
-            .create()
-        speedDial.replaceActionItem(sleepTimerMenuItem, startTimerMenuItem)
-        sleepTimerMenuItem = startTimerMenuItem
-    }
-
-    private fun pauseTimer() {
-        timer?.cancel()
-        timer = null
     }
 
     /**
@@ -486,14 +463,11 @@ class MainActivity : AppCompatActivity() {
      *  - Release the wake lock
      *  - Attach listener to timer for a prompt to cancel sleep time
      */
-    private fun startSleepTime() {
+    private fun showSleepTime() {
         if (viewModel.isMusicOn) {
             viewModel.isMusicOn = false
             invalidateOptionsMenu()
         }
-
-        timer?.cancel()
-        timer = null
 
         sleepTimeWrapper.visibility = View.VISIBLE
 
@@ -516,12 +490,12 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.sleep_time)
             .setMessage(getString(R.string.stop_sleep_time_message))
             .setNegativeButton(getString(R.string.back), null)
-            .setPositiveButton(getString(R.string.resume_dots_button)) { _, _ -> cancelSleepTime() }
+            .setPositiveButton(getString(R.string.resume_dots_button)) { _, _ -> viewModel.cancelSleepTime() }
             .create()
             .show()
     }
 
-    private fun cancelSleepTime() {
+    private fun hideSleepTime() {
         sleepTimeWrapper.visibility = View.INVISIBLE
         timerWrapper.visibility = View.INVISIBLE
 
@@ -535,11 +509,6 @@ class MainActivity : AppCompatActivity() {
 
         @Suppress("DEPRECATION") // The recommended alternative was only introduced in API 30.
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
-    }
-
-    override fun onDestroy() {
-        cancelTimer()
-        super.onDestroy()
     }
 
 }
